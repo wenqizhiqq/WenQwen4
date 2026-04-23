@@ -47,7 +47,7 @@ namespace QwenConsole
             public string Answer { get; set; }
         }
 
-        static async Task Main2(string[] args)
+        static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
             Console.WriteLine("正在加载模型...");

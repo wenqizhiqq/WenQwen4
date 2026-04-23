@@ -16,7 +16,8 @@ namespace AutoTaskClickerWithOverlay
     static class Program
     {
         private const string OllamaApiUrl = "http://localhost:11434/api/chat";
-        private const string ModelName = "qwen3:0.6b";
+        //private const string ModelName = "qwen3:0.6b"; 
+        private const string ModelName = "llava:7b";
 
         [DllImport("user32.dll")]
         private static extern bool SetCursorPos(int x, int y);
@@ -34,7 +35,7 @@ namespace AutoTaskClickerWithOverlay
         public static LogForm LogForm;
 
         [STAThread]
-        static void Main(string[] args)
+        static void Main2(string[] args)
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
