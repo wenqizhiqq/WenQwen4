@@ -22,8 +22,8 @@ namespace QwenConsole3
         };
 
         private static string _modelPath = "E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
-
-        static async Task Main3(string[] args)
+         
+        static async Task Main2(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
             Console.WriteLine("正在加载模型...");
