@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Windows.Forms;
 using LLama;
 using LLama.Common;
 using LLama.Sampling;
@@ -51,6 +52,7 @@ namespace QwenConsole
         {
             Console.OutputEncoding = Encoding.UTF8;
             Console.WriteLine("正在加载模型...");
+            EnsureModelAvailable();
 
             try
             {
@@ -70,7 +72,8 @@ namespace QwenConsole
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"加载失败：{ex.Message}");
+                PromptError($"模型加载失败：{ex.Message}",
+                    "请确认模型文件完整、未被其他程序占用，且本机支持该模型格式（GGUF）。");
                 return;
             }
 
@@ -127,6 +130,56 @@ namespace QwenConsole
             _context?.Dispose();
             _model?.Dispose();
         }
+
+        #region 模型可用性与提示
+        /// <summary>
+        /// 启动前检查模型文件是否存在；缺失时给出明确提示，并允许手动指定路径。
+        /// </summary>
+        private static void EnsureModelAvailable()
+        {
+            if (File.Exists(_modelPath)) return;
+
+            string msg = $"未找到本地模型文件：\n{_modelPath}\n\n请确认模型文件(.gguf)是否存在，或在下方输入正确的模型路径。";
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("⚠️ " + msg);
+            Console.ResetColor();
+            ShowMessageBox(msg, "模型未找到");
+
+            Console.Write("模型路径（直接回车使用默认路径）> ");
+            string input = Console.ReadLine()?.Trim();
+            if (!string.IsNullOrEmpty(input)) _modelPath = input;
+
+            if (!File.Exists(_modelPath))
+            {
+                PromptError("模型文件仍然不存在，程序无法启动。",
+                    "请将 Qwen 的 .gguf 模型放到上述路径后重新运行本程序。");
+                Environment.Exit(0);
+            }
+        }
+
+        /// <summary>
+        /// 输出错误并弹窗提示后等待用户确认退出。
+        /// </summary>
+        private static void PromptError(string detail, string suggestion)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("❌ " + detail);
+            Console.WriteLine(suggestion);
+            Console.ResetColor();
+            ShowMessageBox(detail + "\n\n" + suggestion, "无法启动");
+            Console.WriteLine("按任意键退出...");
+            Console.ReadKey();
+        }
+
+        /// <summary>
+        /// 弹窗提示（无界面环境下静默降级为控制台输出）。
+        /// </summary>
+        private static void ShowMessageBox(string text, string caption)
+        {
+            try { MessageBox.Show(text, caption, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch { /* 非桌面环境下忽略，已通过控制台输出 */ }
+        }
+        #endregion
 
         #region RAG 知识库核心
         /// <summary>
