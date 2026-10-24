@@ -51,6 +51,7 @@ namespace QwenConsole
         static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
+            EnsureKnowledgeFolder();
             Console.WriteLine("正在加载模型...");
             EnsureModelAvailable();
 
@@ -129,6 +130,30 @@ namespace QwenConsole
 
             _context?.Dispose();
             _model?.Dispose();
+        }
+
+        /// <summary>
+        /// 确保资料文件夹存在，并提示用户放入资料后重启软件。
+        /// </summary>
+        private static void EnsureKnowledgeFolder()
+        {
+            try
+            {
+                _knowledgeFolder = Path.GetFullPath(_knowledgeFolder);
+                bool created = !Directory.Exists(_knowledgeFolder);
+                if (created) Directory.CreateDirectory(_knowledgeFolder);
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine(created
+                    ? $"已自动创建资料文件夹：{_knowledgeFolder}"
+                    : $"资料文件夹：{_knowledgeFolder}");
+                Console.ResetColor();
+                Console.WriteLine("   把 txt / md / doc / docx 资料放进该文件夹，重启软件后自动读取。");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"资料文件夹创建失败：{ex.Message}");
+            }
         }
 
         #region 模型可用性与提示
@@ -291,6 +316,7 @@ namespace QwenConsole
             if (!files.Any())
             {
                 Console.WriteLine("   未加载任何知识文件");
+                Console.WriteLine($"   请把资料放入 {_knowledgeFolder} 后重启软件");
                 return;
             }
             Console.WriteLine("   已学习文件：");
