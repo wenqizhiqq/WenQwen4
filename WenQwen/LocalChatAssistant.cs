@@ -1,4 +1,8 @@
-﻿using System;
+﻿// ============================================================
+// 温启志  18719361399
+// ============================================================
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -24,9 +28,18 @@ namespace QwenConsole
         private static List<ChatHistoryItem> _chatHistory = new();
         private static int _historyId = 1;
 
+        // 模型与推荐配置（本项目仅引用 CPU 后端，GpuLayerCount 不生效）：
+        //   0.5B / 1.5B Q4_K_M：上下文 4096~8192，内存约 1~2GB，速度快
+        //   3B / 4B     Q4_K_M：上下文 8192，内存约 3~4GB，速度中等
+        //   7B          Q4_K_M：上下文 8192，内存约 5~6GB，速度较慢（当前默认）
+        //   14B 及以上          ：建议改用 GPU 后端
+        private const int ModelContextSize = 8192;
+        private const int ModelGpuLayers = 99; // 仅 GPU 后端生效
+        private const int MaxOutputTokens = 800;
+
         private static readonly InferenceParams _infParams = new InferenceParams
         {
-            MaxTokens = 800,
+            MaxTokens = MaxOutputTokens,
             AntiPrompts = new[] { "<|im_end|>", "User:", "用户:", "Assistant:", "助手:" },
             SamplingPipeline = new DefaultSamplingPipeline { Temperature = 0.2f }
         };
@@ -61,8 +74,8 @@ namespace QwenConsole
             {
                 var parameters = new ModelParams(_modelPath)
                 {
-                    ContextSize = 8192,
-                    GpuLayerCount = 99,
+                    ContextSize = ModelContextSize,
+                    GpuLayerCount = ModelGpuLayers,
                     Threads = Environment.ProcessorCount,
                 };
 
@@ -82,7 +95,8 @@ namespace QwenConsole
 
             Console.WriteLine("==================================================");
             Console.WriteLine("             工业离线AI助手（RAG增强版）");
-            Console.WriteLine("   模型：Qwen2.5-7B-Instruct");
+            Console.WriteLine($"   模型：{Path.GetFileNameWithoutExtension(_modelPath)}");
+            Console.WriteLine($"   配置：上下文 {ModelContextSize} | 线程 {Environment.ProcessorCount} | CPU 推理 | 最大输出 {MaxOutputTokens} token");
             Console.WriteLine("   模式：RAG检索增强生成 + 本地知识库");
             Console.WriteLine($"   已加载文件夹：{_knowledgeFolder}");
             Console.WriteLine($"   知识库总块数：{_knowledgeChunks.Count}");
@@ -182,6 +196,7 @@ namespace QwenConsole
             Console.ResetColor();
 
             OpenModelDownloadPage();
+            ShowModelConfigGuide();
             ShowMessageBox(msg, "模型未找到");
 
             Console.Write("模型路径（直接回车使用默认路径）> ");
@@ -210,6 +225,18 @@ namespace QwenConsole
             {
                 Console.WriteLine($"   无法自动打开浏览器（{ex.Message}），请手动访问：{ModelDownloadUrl}");
             }
+        }
+
+        /// <summary>
+        /// 说明不同模型大小对应的推荐配置（本项目为 CPU 后端）。
+        /// </summary>
+        private static void ShowModelConfigGuide()
+        {
+            Console.WriteLine("   模型与推荐配置（CPU 推理）：");
+            Console.WriteLine("     0.5B / 1.5B  Q4_K_M   上下文 4096~8192   内存约 1~2GB   速度快");
+            Console.WriteLine("     3B / 4B      Q4_K_M   上下文 8192        内存约 3~4GB   速度中等");
+            Console.WriteLine("     7B           Q4_K_M   上下文 8192        内存约 5~6GB   速度较慢（当前默认）");
+            Console.WriteLine("     14B 及以上            建议使用 GPU 后端（本项目仅带 CPU 后端）");
         }
 
         /// <summary>
