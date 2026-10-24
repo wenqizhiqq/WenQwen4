@@ -30,7 +30,7 @@ namespace QwenConsole
             SamplingPipeline = new DefaultSamplingPipeline { Temperature = 0.2f }
         };
 
-        private static string _modelPath = "D:\\wqz\\models\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
+        private static string _modelPath = "e:\\wqz\\models\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
         private static string _knowledgeFolder = "资料";
         private static int _chunkSize = 800; // 知识库分块大小
 
@@ -138,6 +138,16 @@ namespace QwenConsole
         private static void EnsureModelAvailable()
         {
             if (File.Exists(_modelPath)) return;
+
+            string autoFound = ModelLocator.Resolve(_modelPath);
+            if (!string.Equals(autoFound, _modelPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _modelPath = autoFound;
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"已在其他文件夹自动找到模型：{_modelPath}");
+                Console.ResetColor();
+                return;
+            }
 
             string msg = $"未找到本地模型文件：\n{_modelPath}\n\n请确认模型文件(.gguf)是否存在，或在下方输入正确的模型路径。";
             Console.ForegroundColor = ConsoleColor.Yellow;

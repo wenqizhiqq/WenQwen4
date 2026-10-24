@@ -23,7 +23,7 @@ namespace QwenConsole5
             SamplingPipeline = new DefaultSamplingPipeline { Temperature = 0.3f }
         };
 
-        private static string _modelPath = "E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
+        private static string _modelPath = ModelLocator.Resolve("E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf");
 
         // 历史文件
         private static readonly string _historyFile = "chat_history.json";
@@ -64,7 +64,7 @@ namespace QwenConsole5
 
             Console.WriteLine("================================================================================================");
             Console.WriteLine("                              本地离线大模型聊天助理");
-            Console.WriteLine($"模型：  E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf");
+            Console.WriteLine($"模型：  {_modelPath}");
             Console.WriteLine("          纯本地运行，无需联网，保护隐私");
             Console.WriteLine("    输入 exit 退出，输入 clear 清空记忆");
             Console.WriteLine("================================================================================================");

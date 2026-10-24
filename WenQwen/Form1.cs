@@ -61,7 +61,7 @@ namespace WenQwenOffline
         {
             try
             {
-                string modelPath = "E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
+                string modelPath = ModelLocator.Resolve("E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf");
 
                 var parameters = new ModelParams(modelPath)
                 {

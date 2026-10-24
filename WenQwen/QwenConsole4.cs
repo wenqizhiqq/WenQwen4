@@ -13,7 +13,7 @@ namespace QwenVoiceChat
     class Program
     {
         // 模型路径
-        private static string _llmModelPath = "E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
+        private static string _llmModelPath = ModelLocator.Resolve("E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf");
         private static string _asrModelPath = "ggml-small.bin"; // 换成你下载的：base.bin / small.bin
 
         // LLM

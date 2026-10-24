@@ -28,7 +28,7 @@ namespace QwenConsole2
             SamplingPipeline = new DefaultSamplingPipeline { Temperature = 0.1f } // 低温度=更听话
         };
 
-        private static string _modelPath = "E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
+        private static string _modelPath = ModelLocator.Resolve("E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf");
         private static string _knowledgeFolder = "knowledge";
 
         public class ChatHistoryItem

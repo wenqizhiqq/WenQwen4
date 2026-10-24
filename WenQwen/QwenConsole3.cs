@@ -21,7 +21,7 @@ namespace QwenConsole3
             SamplingPipeline = new DefaultSamplingPipeline { Temperature = 0.3f }
         };
 
-        private static string _modelPath = "E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
+        private static string _modelPath = ModelLocator.Resolve("E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf");
          
         static async Task Main2(string[] args)
         {
@@ -50,7 +50,7 @@ namespace QwenConsole3
             // 打印和截图完全一致的欢迎界面
             Console.WriteLine("================================================================================================");
             Console.WriteLine("                              本地离线大模型聊天助理");
-            Console.WriteLine($"模型：  E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf");
+            Console.WriteLine($"模型：  {_modelPath}");
             Console.WriteLine("          纯本地运行，无需联网，保护隐私");
             Console.WriteLine("    输入 exit 退出，直接输入内容开始对话");
             Console.WriteLine("================================================================================================");
