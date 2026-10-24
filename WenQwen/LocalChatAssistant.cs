@@ -30,7 +30,7 @@ namespace QwenConsole
             SamplingPipeline = new DefaultSamplingPipeline { Temperature = 0.2f }
         };
 
-        private static string _modelPath = "E:\\wqz\\model\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
+        private static string _modelPath = "D:\\wqz\\models\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
         private static string _knowledgeFolder = "资料";
         private static int _chunkSize = 800; // 知识库分块大小
 
