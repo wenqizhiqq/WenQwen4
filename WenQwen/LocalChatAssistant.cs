@@ -46,7 +46,7 @@ namespace QwenConsole
 
         private static string _modelPath = "e:\\wqz\\models\\qwen2.5-7b-instruct-1m-q4_k_m.gguf";
         private static string _knowledgeFolder = "资料";
-        private const string ModelDownloadUrl = "https://modelscope.cn/models?name=Qwen2.5-4B-Instruct-GGUF&page=1&tabKey=task";
+        private const string ModelDownloadUrl = "https://modelscope.cn/models/ngxson/Qwen2.5-7B-Instruct-1M-Q4_K_M-GGUF/files";
         private static int _chunkSize = 800; // 知识库分块大小
 
         // 知识库分块实体
@@ -190,7 +190,7 @@ namespace QwenConsole
                 return;
             }
 
-            string msg = $"未找到本地模型文件：\n{_modelPath}\n\n已为你打开 ModelScope 下载页面，请下载 Qwen2.5-4B-Instruct 的 GGUF 模型。\n下载完成后，在下方输入模型的实际路径。";
+            string msg = $"未找到本地模型文件：\n{_modelPath}\n\n已为你打开 ModelScope 下载页面，请下载 Qwen2.5-7B-Instruct-1M Q4_K_M 的 GGUF 模型。\n下载完成后，在下方输入模型的实际路径。";
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine("⚠️ " + msg);
             Console.ResetColor();
