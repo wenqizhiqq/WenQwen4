@@ -20,7 +20,7 @@ WenQwen 是一个完全离线的工业 AI 助手，目标是在不联网的工�
 
 **从零构建（仓库里没有 bin）**
 
-仓库只保存源码——`WenQwen/LocalChatAssistant.cs`、`WenQwen/ModelLocator.cs`、`WenQwen/WenQwen.csproj` 与解决方案文件，`bin/` 和 `obj/` 都在 `.gitignore` 里，从不入库：它们只是编译产物，几万个 DLL 里绝大部分是各平台原生库，提交上去既超 GitHub 单文件 100MB 限制又毫无价值。克隆后跑一条命令即可自动还原并生成：
+仓库只保存源码——`WenQwen/LocalChatAssistant.cs`、`WenQwen/KnowledgeSeeder.cs`、`WenQwen/ModelLocator.cs`、`WenQwen/WenQwen.csproj` 与解决方案文件，`bin/` 和 `obj/` 都在 `.gitignore` 里，从不入库：它们只是编译产物，几万个 DLL 里绝大部分是各平台原生库，提交上去既超 GitHub 单文件 100MB 限制又毫无价值。克隆后跑一条命令即可自动还原并生成：
 
 ```powershell
 git clone <仓库地址> WenQwen2
@@ -36,7 +36,7 @@ cd WenQwen2
 
 知识文件统一放**仓库根目录**的 `资料\`（txt / md / csv / docx / doc / xlsx / xls / pdf），这是唯一需要维护的地方，`.gitignore` 只放行根目录这一个 `资料`；`bin` 下运行目录里的副本是构建时拷过去的，随 `bin` 一起被忽略，不入库。每次 `build.ps1` 会把根目录 `资料\` 里的文件（跳过占位的 `.gitkeep`）复制到 `WenQwen\bin\<配置>\net8.0-windows\资料\`，所以克隆仓库 → 构建 → 启动，知识库就自动就位；直接 `dotnet run` 时工作目录是仓库根，程序会直接读根目录的 `资料\`。复制是增量覆盖，不会删除运行目录里多出来的文件。
 
-仓库里的 `资料\使用说明.txt` 是一份默认内容（讲清支持格式与写作建议，本身也能被检索）。另外程序启动时也会自检：如果 `资料` 目录里一个可解析文件都没有，会自动写出这份 `使用说明.txt` 并提示，所以不会再出现“知识库总块数：0”的空目录；放入真实资料后这个文件可以随意删改。工程已锁定 `RuntimeIdentifier=win-x64`、`SelfContained=false`，因此只会拷贝本机需要的原生库，输出约 420MB（其余是 TorchSharp 的 `torch_cpu.dll`、OpenCvSharp、onnxruntime 等未被当前功能引用的包，可按需继续精简）。没装 SDK 时脚本会提示去 `https://dotnet.microsoft.com/download/dotnet/8.0` 安装。GGUF 模型不入库，见下一节由程序自动定位。
+仓库里的 `资料\` 自带 5 个可直接提问的示例资料，覆盖四种格式：`运动控制基础术语.txt`（术语与名词解释）、`SV-2000 伺服轴调试手册.docx`（参数设置与调试步骤）、`SV-2000 报警代码处理.pdf`（AL-xx 报警的成因与处理）、`气缸与IO点位表.xlsx`（输入输出点位定义）和 `使用说明.txt`（支持格式与写法建议，本身也能被检索）。程序启动时还会自检：如果 `资料` 目录里一个可解析文件都没有，就自动把这 5 个文件整套写出来并打印清单，所以不会再出现“知识库总块数：0”的空目录；放入真实资料后这批示例可以整批删除，需要重建时执行 `WenQwen.exe --seed-knowledge`（覆盖同名示例文件，不动其它资料）。另外两个排查入口都不加载模型：`--list-knowledge` 打印每个资料抽出多少字、切成几块，`--search "AL-51 报警"` 打印分词、各文档得分和实际带进提示词的片段。工程已锁定 `RuntimeIdentifier=win-x64`、`SelfContained=false`，因此只会拷贝本机需要的原生库，输出约 420MB（其余是 TorchSharp 的 `torch_cpu.dll`、OpenCvSharp、onnxruntime 等未被当前功能引用的包，可按需继续精简）。没装 SDK 时脚本会提示去 `https://dotnet.microsoft.com/download/dotnet/8.0` 安装。GGUF 模型不入库，见下一节由程序自动定位。
 
 **部署与使用**
 

@@ -61,8 +61,6 @@ namespace QwenConsole
 
         private static string _modelPath = "D:\\wqz\\models\\qwen2.5-vl-3b-instruct-q4_k_m.gguf";
         private static string _knowledgeFolder = "资料";
-        // 资料文件夹里一个资料都没有时，自动生成这份说明，避免“知识库 0 块”的空目录
-        private const string DefaultKnowledgeFileName = "使用说明.txt";
         private static readonly string[] KnowledgeExtensions =
             { "*.txt", "*.md", "*.csv", "*.docx", "*.doc", "*.xlsx", "*.xls", "*.pdf" };
         private const string ModelDownloadUrl = "https://modelscope.cn/models?name=Qwen2.5-VL-3B-Instruct-GGUF&page=1&tabKey=task";
@@ -89,8 +87,47 @@ namespace QwenConsole
         static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
+            // .NET 8 默认只带 UTF-8/ASCII 等少数编码。iTextSharp 5 解析字体指标时会取
+            // windows-1252，不注册 CodePages 就直接抛 ArgumentException，PDF 只能退回 Helvetica（中文全丢）。
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             // 管道/文件重定向输入时按 UTF-8 解码，避免中文被按本地代码页解析成乱码
             if (Console.IsInputRedirected) Console.InputEncoding = Encoding.UTF8;
+
+            // 维护入口：只重建示例资料，不加载模型
+            if (args.Any(a => string.Equals(a, "--seed-knowledge", StringComparison.OrdinalIgnoreCase)))
+            {
+                SeedKnowledgeFolder(force: true);
+                return;
+            }
+
+            // 排查入口：只跑抽取与分块，确认资料能被读进来，不加载模型
+            if (args.Any(a => string.Equals(a, "--list-knowledge", StringComparison.OrdinalIgnoreCase)))
+            {
+                Environment.SetEnvironmentVariable("WENQWEN_DEBUG_RAG", "1");
+                EnsureKnowledgeFolder();
+                LoadRagKnowledge();
+                Console.WriteLine($"知识库总块数：{_knowledgeChunks.Count}");
+                ShowLoadedFiles();
+                return;
+            }
+
+            // 排查入口：只跑检索，看一个问题命中哪篇资料，不加载模型
+            int searchIndex = Array.FindIndex(args, a => string.Equals(a, "--search", StringComparison.OrdinalIgnoreCase));
+            if (searchIndex >= 0 && searchIndex + 1 < args.Length)
+            {
+                string query = string.Join(" ", args.Skip(searchIndex + 1));
+                Environment.SetEnvironmentVariable("WENQWEN_DEBUG_RAG", "1");
+                EnsureKnowledgeFolder();
+                LoadRagKnowledge();
+
+                Console.WriteLine($"问题：{query}");
+                string context = SearchKnowledgeRag(query);
+                Console.WriteLine(string.IsNullOrWhiteSpace(context)
+                    ? "命中结果：无"
+                    : $"命中结果：{context.Length} 字{Environment.NewLine}{context}");
+                return;
+            }
+
             SilenceLlamaLog();
             EnsureKnowledgeFolder();
             Console.WriteLine("正在加载模型...");
@@ -205,15 +242,17 @@ namespace QwenConsole
                 Console.ResetColor();
                 Console.WriteLine("   把 txt / md / docx / xlsx / pdf 资料放进该文件夹，重启软件后自动读取。");
 
-                // 一个资料都没有时自动落一份说明文件，目录不再空着
+                // 一个资料都没有时自动落一整套示例资料（txt / docx / pdf / xlsx），
+                // 空目录不再只有一份说明，知识库开箱就有内容可问
                 if (!HasAnyKnowledgeFile())
                 {
-                    string guide = Path.Combine(_knowledgeFolder, DefaultKnowledgeFileName);
-                    if (!File.Exists(guide))
+                    var made = KnowledgeSeeder.Seed(_knowledgeFolder);
+                    if (made.Count > 0)
                     {
-                        File.WriteAllText(guide, BuildDefaultKnowledgeText(), new UTF8Encoding(false));
                         Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine($"   资料文件夹里还没有资料，已自动生成 {DefaultKnowledgeFileName}（可直接编辑或另放文件）。");
+                        Console.WriteLine($"   资料文件夹里还没有资料，已自动生成 {made.Count} 个示例文件：");
+                        foreach (string name in made) Console.WriteLine("     " + name);
+                        Console.WriteLine("   这些文件可以直接提问，也可以整批删除后换成自己的资料。");
                         Console.ResetColor();
                     }
                 }
@@ -221,6 +260,36 @@ namespace QwenConsole
             catch (Exception ex)
             {
                 Console.WriteLine($"资料文件夹创建失败：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 手动重建示例资料（WenQwen.exe --seed-knowledge），同名文件覆盖，不动用户自己的资料。
+        /// </summary>
+        private static void SeedKnowledgeFolder(bool force)
+        {
+            try
+            {
+                _knowledgeFolder = Path.GetFullPath(_knowledgeFolder);
+                Directory.CreateDirectory(_knowledgeFolder);
+
+                if (!force && HasAnyKnowledgeFile())
+                {
+                    Console.WriteLine($"资料文件夹已有资料，跳过生成：{_knowledgeFolder}");
+                    return;
+                }
+
+                var made = KnowledgeSeeder.Seed(_knowledgeFolder);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"已生成 {made.Count} 个示例资料：{_knowledgeFolder}");
+                foreach (string name in made) Console.WriteLine("  " + name);
+                Console.ResetColor();
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"生成示例资料失败：{ex.Message}");
+                Console.ResetColor();
             }
         }
 
@@ -243,31 +312,6 @@ namespace QwenConsole
                 // 目录读不了就当作“有资料”，不要凭猜测往里写文件
                 return true;
             }
-        }
-
-        /// <summary>
-        /// 空资料文件夹的占位说明：讲清支持格式与写法建议，本身也是一段可检索的知识。
-        /// </summary>
-        private static string BuildDefaultKnowledgeText()
-        {
-            return string.Join(Environment.NewLine, new[]
-            {
-                "资料文件夹使用说明",
-                "================",
-                "",
-                "这里是本机的离线知识库。程序启动时自动读取本文件夹（含子文件夹）里的资料，抽取文字后分块，回答问题前先检索这里。",
-                "",
-                "支持的格式：txt、md、csv、docx、doc、xlsx、xls、pdf。",
-                "不支持的格式：扫描件 PDF（没有文字层）、chm、图片、网页文件。",
-                "",
-                "编写建议：",
-                "1. 一个主题一个文件，文件名直接写设备或主题名，例如“AL-51 报警处理.txt”，提问时更容易命中。",
-                "2. 表格转成文本时保留表头，每行写成“列名=值”，例如“报警代码=AL-51，可能原因=编码器通讯中断，处理=检查编码器通讯线”，否则容易看串列。",
-                "3. 处理步骤按顺序编号，一条一步，避免整段抄录。",
-                "4. 页眉页脚、目录页码可以留着，程序会尽量跳过重复内容和过短的碎片。",
-                "",
-                "本文件是资料为空时自动生成的占位说明。放入自己的资料后，本文件可以直接删除或改写。"
-            });
         }
 
         #region 模型可用性与提示
@@ -973,7 +1017,7 @@ namespace QwenConsole
             bool hasKnowledge = !string.IsNullOrWhiteSpace(knowledge);
 
             string systemPrompt = hasKnowledge
-                ? "你是工业设备技术支持工程师。只依据用户给出的【参考资料】回答，资料里没写的内容直接说“资料中没有提到”，不要编造。用简洁中文分条说明，关键结论后标注来源文件名。参考资料可能是表格或分条清单，先定位与问题对应的那一行再回答，不要混用其他条目。只回答与问题直接相关的内容，不要整段抄录资料。"
+                ? "你是工业设备技术支持工程师。只依据用户给出的【参考资料】回答，资料里没写的内容直接说“资料中没有提到”，不要编造。用简洁中文分条说明，关键结论后标注来源文件名。参考资料可能是表格或分条清单，先定位与问题对应的那一行再回答，不要混用其他条目。参数号、型号、数值必须原样照抄资料，不要改写、补全或推测。只回答与问题直接相关的内容，不要整段抄录资料。"
                 : "你是工业设备技术支持工程师。这次没有检索到资料，先用一句话说明“知识库中没有相关资料”，再给出通用常识建议。";
 
             string userPrompt = hasKnowledge
