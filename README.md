@@ -40,3 +40,4 @@ cd WenQwen2
 
 优点是零联网、部署简单、入口单一；模型缺失能自动跨盘查找，容错比原来好；docx/xlsx/pdf 都能真正解析，表格按“表头=值”还原；每问都是独立的无状态推理，不会再出现第二轮起空回答。局限也很明显：检索仍是字面命中，只按二元组和词频排序，换个说法（如“连不上”对“通讯失败”）就可能漏检，需要向量检索才能解决；会话历史不再进入提示词，纯闲聊式上下文追问能力因此变弱；知识库每次启动重建，没有持久化；扫描件 PDF 没有文字层、chm 无法解析；3B 模型仍会漏答细节或把半句说完就停，例如把表格某一列读错、把 G02 的 X/Y 说成“相对 Z 轴”，这类错需要人工核对来源文件；CPU 后端下 3B 模型吞吐仍受单机限制，一问通常数秒到十几秒；控制台交互没有并发和会话管理；工程里仍保留 OpenCvSharp、TorchSharp、Whisper、NAudio 等与现有功能无关的包，可以继续精简。总体看，这是一个可用的本地工业知识问答原型；若要产品化，应优先补向量检索、历史裁剪和图形界面。
 <img width="1806" height="963" alt="ac85e0e4c82eedf21b322baa28d4bbfe" src="https://github.com/user-attachments/assets/42abbbf7-0d15-42b5-b464-fd18d7167620" />
+<img width="1025" height="476" alt="image" src="https://github.com/user-attachments/assets/49764dd7-a8e1-400d-a65e-2d89c43ce0e7" />
