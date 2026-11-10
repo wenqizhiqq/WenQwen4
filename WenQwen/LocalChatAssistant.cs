@@ -91,6 +91,7 @@ namespace QwenConsole
             EnsureKnowledgeFolder();
             Console.WriteLine("正在加载模型...");
             EnsureModelAvailable();
+            VerifyModelFile();
 
             try
             {
@@ -246,6 +247,54 @@ namespace QwenConsole
         }
 
         /// <summary>
+        /// 加载前体检：文件头必须是 "GGUF" 且体积合理。
+        /// 网盘边下边读、下载中断、占位文件都会在这里被挡住，
+        /// 比 llama.cpp 统一抛的 "Failed to load model" 更容易定位。
+        /// </summary>
+        private static void VerifyModelFile()
+        {
+            var info = new FileInfo(_modelPath);
+            long size = info.Exists ? info.Length : 0;
+            string sizeText = size >= 1024L * 1024 * 1024
+                ? $"{size / 1024.0 / 1024 / 1024:F2} GB"
+                : $"{size / 1024.0 / 1024:F1} MB";
+            Console.WriteLine($"   文件：{_modelPath}");
+            Console.WriteLine($"   大小：{sizeText}");
+
+            if (size < 64L * 1024 * 1024)
+            {
+                PromptError($"模型文件不完整：{_modelPath}（仅 {sizeText}）",
+                    "Q4_K_M 的 3B 模型应在 1.5GB 以上。请等下载真正结束（网盘客户端显示“已完成”）后再运行，或重新下载。");
+                Environment.Exit(0);
+            }
+
+            string magic;
+            try
+            {
+                byte[] head = new byte[4];
+                using (var fs = File.OpenRead(_modelPath))
+                {
+                    int n = fs.Read(head, 0, head.Length);
+                    if (n < head.Length) throw new IOException("文件头不足 4 字节");
+                }
+                magic = Encoding.ASCII.GetString(head);
+            }
+            catch (Exception ex)
+            {
+                PromptError($"模型文件无法读取：{_modelPath}", ex.Message);
+                Environment.Exit(0);
+                return;
+            }
+
+            if (!string.Equals(magic, "GGUF", StringComparison.Ordinal))
+            {
+                PromptError($"模型文件格式不对：{_modelPath}（文件头为 \"{magic}\"，应为 \"GGUF\"）",
+                    "常见原因：下载未完成、下到的是网页或种子、网盘占位文件还没落地到本地。请核对文件大小后重新下载。");
+                Environment.Exit(0);
+            }
+        }
+
+        /// <summary>
         /// 打开 ModelScope 模型下载页面，浏览器不可用时退化为打印链接。
         /// </summary>
         private static void OpenModelDownloadPage()
@@ -283,8 +332,9 @@ namespace QwenConsole
             Console.WriteLine(suggestion);
             Console.ResetColor();
             ShowMessageBox(detail + "\n\n" + suggestion, "无法启动");
+            if (Console.IsInputRedirected) return; // 管道/文件输入时没有可读按键，直接返回由调用方退出
             Console.WriteLine("按任意键退出...");
-            Console.ReadKey();
+            try { Console.ReadKey(); } catch (InvalidOperationException) { }
         }
 
         /// <summary>

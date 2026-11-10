@@ -8,7 +8,7 @@ WenQwen 是一个完全离线的工业 AI 助手，目标是在不联网的工�
 
 **模型定位与加载**
 
-默认模型是 `D:\wqz\models\qwen2.5-vl-3b-instruct-q4_k_m.gguf`。若默认路径不存在，ModelLocator 先在各盘浅层目录按同名文件广度搜索，深度 3，跳过 Windows、Program Files、AppData、node_modules 等目录，单盘限 4 秒、总计 10 秒，非系统盘优先；仍找不到则退化为查找文件名含 qwen 的最大 `.gguf`；再失败才弹窗并允许手工输入路径，最终仍不存在则退出。加载参数为上下文 8192、线程数等于 CPU 核数、GpuLayerCount 为 99，但实际引用的是 LLamaSharp 的 CPU 后端，因此只能 CPU 推理。3B Q4_K_M 模型约 1.8GB，运行时内存约 2 到 3GB，加载和生成速度明显快于 7B。当前只用其文本能力，视觉投影文件 `mmproj-qwen2.5-vl-3b-instruct-q8_0.gguf` 未加载，图片输入不生效。
+默认模型是 `D:\wqz\models\qwen2.5-vl-3b-instruct-q4_k_m.gguf`。若默认路径不存在，ModelLocator 先在各盘浅层目录按同名文件广度搜索，深度 3，跳过 Windows、Program Files、AppData、node_modules 等目录，单盘限 4 秒、总计 10 秒，非系统盘优先；仍找不到则退化为查找文件名含 qwen 的最大 `.gguf`；再失败才弹窗并允许手工输入路径，最终仍不存在则退出。定位到文件后还有一道体检：先打印路径和体积，再读前 4 字节确认文件头是 `GGUF`；小于 64MB 或文件头不对会直接给出“文件不完整 / 格式不对”的提示并退出，避免 llama.cpp 统一抛出的 `Failed to load model` 掩盖真实原因（网盘边下边读、下载中断、占位文件都会走到这一步）。加载参数为上下文 8192、线程数等于 CPU 核数、GpuLayerCount 为 99，但实际引用的是 LLamaSharp 的 CPU 后端，因此只能 CPU 推理。3B Q4_K_M 模型约 1.8GB，运行时内存约 2 到 3GB，加载和生成速度明显快于 7B。当前只用其文本能力，视觉投影文件 `mmproj-qwen2.5-vl-3b-instruct-q8_0.gguf` 未加载，图片输入不生效。
 
 **知识库（RAG）**
 
