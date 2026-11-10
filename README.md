@@ -18,6 +18,20 @@ WenQwen 是一个完全离线的工业 AI 助手，目标是在不联网的工�
 
 主循环中，输入 exit 退出、clear 清空记忆；输入纯数字且等于上一轮编号时，自动追问“请详细解释：上一问题”；其余输入作为新问题。检索分三步：先把问题切成英文/数字型号词加中文二元组（中文没有空格，按字切二元组才能命中），去掉“怎样、怎么、什么、如何、等于、多少”等泛词；再按词频、词稀有度给块打分，汉字占比低的代码片段降权；最后先按文档排序（文件名命中查询词额外加高分，因此以主题命名的文档会优先），第一名明显领先（超过第二名 1.5 倍）时只带这一篇，否则带前两名各 2 块、总计不超过 3000 字。不带第二篇是为了防止小模型串题——实测问“AL-51 报警”时，附带另一篇回零文档会让它答成“回零方向设置错误”。提示词使用 Qwen 的 `im_start` 模板，资料放进 user 消息而不是 system（小模型对 system 里的长文本不敏感），且不拼接历史问答：3B 会把上一轮答案原样抄进新答案，问齿轮比却先复述回零处理。系统提示要求只依据资料回答、资料没写就说“资料中没有提到”、标注来源文件名，并明确“只答相关内容，不要整段抄录”。推理用 `StatelessExecutor`，每次重新吃整段提示词并自行清空 KV 缓存；此前用 `InteractiveExecutor` 复用同一实例，第二轮起会直接吐 EOS 导致空回答。采样为温度 0.3、TopK 40、TopP 0.9、重复惩罚 1.18（惩罚窗口 128 token）、频率/存在惩罚 0.2，最大 600 token，遇到 `im_end`、`User:` 等标记停止；低温度且无重复惩罚时 3B 会把同一段“现象/处理”反复刷屏到上限。
 
+**从零构建（仓库里没有 bin）**
+
+仓库只保存源码——`WenQwen/LocalChatAssistant.cs`、`WenQwen/ModelLocator.cs`、`WenQwen/WenQwen.csproj` 与解决方案文件，`bin/` 和 `obj/` 都在 `.gitignore` 里，从不入库：它们只是编译产物，几万个 DLL 里绝大部分是各平台原生库，提交上去既超 GitHub 单文件 100MB 限制又毫无价值。克隆后跑一条命令即可自动还原并生成：
+
+```powershell
+git clone <仓库地址> WenQwen2
+cd WenQwen2
+.\build.ps1            # 还原依赖 + 编译，产物落在 WenQwen\bin\Debug\net8.0-windows
+.\build.ps1 -Run       # 编译完直接启动
+.\build.ps1 -Clean     # 先删 bin/obj 再重建
+```
+
+脚本会检查 .NET SDK、打印版本、构建后汇报产物路径 / 文件数 / 总大小，并确保运行目录下存在「资料」文件夹。若机器策略禁止执行 PowerShell 脚本，等价的一条命令是 `dotnet build WenQwen\WenQwen.csproj -c Debug`。工程已锁定 `RuntimeIdentifier=win-x64`、`SelfContained=false`，因此只会拷贝本机需要的原生库，输出约 420MB（其余是 TorchSharp 的 `torch_cpu.dll`、OpenCvSharp、onnxruntime 等未被当前功能引用的包，可按需继续精简）。没装 SDK 时脚本会提示去 `https://dotnet.microsoft.com/download/dotnet/8.0` 安装。GGUF 模型不入库，见下一节由程序自动定位。
+
 **部署与使用**
 
 把模型放在任意磁盘的浅层目录即可，文件名保持不变；把要学习的文件放进程序运行目录下的“资料”文件夹，启动后会自动加载并列出已学习文件。机器需安装 .NET 8 运行时。首次启动要花数秒到数十秒加载模型，之后按提示输入问题即可。llama.cpp 的原生日志（KV cache、计算图层数、缓冲区分配等）默认全部静默，控制台只留程序自己的提示；需要排查模型加载问题时设 `WENQWEN_DEBUG_LLAMA=1` 再运行。对话只保存在当前进程内，退出即丢失。
