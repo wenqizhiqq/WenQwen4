@@ -2,6 +2,7 @@
   WenQwen 一键构建脚本  —— 温启志  18719361399
 
   克隆仓库后，WenQwen\bin 与 WenQwen\obj 可以完全不存在，跑本脚本会自动还原依赖并生成。
+  同时把仓库根目录「资料」里的知识文件同步到运行目录（bin 里的副本不入库）。
 
   用法:
     .\build.ps1                      构建 Debug
@@ -66,10 +67,31 @@ Write-Host "   可执行: $exe"
 Write-Host "   产物目录: $outDir"
 Write-Host "   文件数: $($files.Count) 个, 共 $mb MB"
 
+# 运行目录下的知识库文件夹
 $docs = Join-Path $outDir '资料'
 if (-not (Test-Path $docs)) {
     New-Item -ItemType Directory -Path $docs -Force | Out-Null
     Write-Host "   已创建知识库目录: $docs"
+}
+
+# 把仓库根目录 资料\ 的知识文件同步过去（.gitkeep 只是占位，不复制）
+$srcDocs = Join-Path $root '资料'
+if (Test-Path $srcDocs) {
+    $copied = 0
+    Get-ChildItem -Path $srcDocs -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne '.gitkeep' } | ForEach-Object {
+            $rel = $_.FullName.Substring($srcDocs.Length).TrimStart('\')
+            $dst = Join-Path $docs $rel
+            $dstDir = Split-Path $dst -Parent
+            if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
+            Copy-Item $_.FullName $dst -Force
+            $copied++
+        }
+    if ($copied -gt 0) {
+        Ok "   已同步知识文件 $copied 个 -> $docs"
+    } else {
+        Write-Host "   仓库 资料\ 里还没有知识文件, 放入后重新构建即可自动同步"
+    }
 }
 
 if ($Run) {

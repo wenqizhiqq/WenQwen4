@@ -30,11 +30,15 @@ cd WenQwen2
 .\build.ps1 -Clean     # 先删 bin/obj 再重建
 ```
 
-脚本会检查 .NET SDK、打印版本、构建后汇报产物路径 / 文件数 / 总大小，并确保运行目录下存在「资料」文件夹。若机器策略禁止执行 PowerShell 脚本，等价的一条命令是 `dotnet build WenQwen\WenQwen.csproj -c Debug`。工程已锁定 `RuntimeIdentifier=win-x64`、`SelfContained=false`，因此只会拷贝本机需要的原生库，输出约 420MB（其余是 TorchSharp 的 `torch_cpu.dll`、OpenCvSharp、onnxruntime 等未被当前功能引用的包，可按需继续精简）。没装 SDK 时脚本会提示去 `https://dotnet.microsoft.com/download/dotnet/8.0` 安装。GGUF 模型不入库，见下一节由程序自动定位。
+脚本会检查 .NET SDK、打印版本、构建后汇报产物路径 / 文件数 / 总大小，并把仓库根目录 `资料\` 里的知识文件同步到运行目录、自动补建「资料」文件夹。若机器策略禁止执行 PowerShell 脚本，等价的一条命令是 `dotnet build WenQwen\WenQwen.csproj -c Debug`。
+
+**资料（知识库）目录**
+
+知识文件统一放**仓库根目录**的 `资料\`（txt / md / csv / docx / doc / xlsx / xls / pdf），这是唯一需要维护的地方，`.gitignore` 只放行根目录这一个 `资料`；`bin` 下运行目录里的副本是构建时拷过去的，随 `bin` 一起被忽略，不入库。每次 `build.ps1` 会把根目录 `资料\` 里的文件（跳过占位的 `.gitkeep`）复制到 `WenQwen\bin\<配置>\net8.0-windows\资料\`，所以克隆仓库 → 构建 → 启动，知识库就自动就位；直接 `dotnet run` 时工作目录是仓库根，程序会直接读根目录的 `资料\`。复制是增量覆盖，不会删除运行目录里多出来的文件。工程已锁定 `RuntimeIdentifier=win-x64`、`SelfContained=false`，因此只会拷贝本机需要的原生库，输出约 420MB（其余是 TorchSharp 的 `torch_cpu.dll`、OpenCvSharp、onnxruntime 等未被当前功能引用的包，可按需继续精简）。没装 SDK 时脚本会提示去 `https://dotnet.microsoft.com/download/dotnet/8.0` 安装。GGUF 模型不入库，见下一节由程序自动定位。
 
 **部署与使用**
 
-把模型放在任意磁盘的浅层目录即可，文件名保持不变；把要学习的文件放进程序运行目录下的“资料”文件夹，启动后会自动加载并列出已学习文件。机器需安装 .NET 8 运行时。首次启动要花数秒到数十秒加载模型，之后按提示输入问题即可。llama.cpp 的原生日志（KV cache、计算图层数、缓冲区分配等）默认全部静默，控制台只留程序自己的提示；需要排查模型加载问题时设 `WENQWEN_DEBUG_LLAMA=1` 再运行。对话只保存在当前进程内，退出即丢失。
+把模型放在任意磁盘的浅层目录即可，文件名保持不变；把要学习的文件放进**仓库根目录**的「资料」文件夹（构建时会自动同步到运行目录；也可直接放进运行目录下的「资料」），启动后会自动加载并列出已学习文件。机器需安装 .NET 8 运行时。首次启动要花数秒到数十秒加载模型，之后按提示输入问题即可。llama.cpp 的原生日志（KV cache、计算图层数、缓冲区分配等）默认全部静默，控制台只留程序自己的提示；需要排查模型加载问题时设 `WENQWEN_DEBUG_LLAMA=1` 再运行。对话只保存在当前进程内，退出即丢失。
 
 **现状与局限**
 
