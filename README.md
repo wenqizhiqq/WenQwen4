@@ -34,7 +34,9 @@ cd WenQwen2
 
 **资料（知识库）目录**
 
-知识文件统一放**仓库根目录**的 `资料\`（txt / md / csv / docx / doc / xlsx / xls / pdf），这是唯一需要维护的地方，`.gitignore` 只放行根目录这一个 `资料`；`bin` 下运行目录里的副本是构建时拷过去的，随 `bin` 一起被忽略，不入库。每次 `build.ps1` 会把根目录 `资料\` 里的文件（跳过占位的 `.gitkeep`）复制到 `WenQwen\bin\<配置>\net8.0-windows\资料\`，所以克隆仓库 → 构建 → 启动，知识库就自动就位；直接 `dotnet run` 时工作目录是仓库根，程序会直接读根目录的 `资料\`。复制是增量覆盖，不会删除运行目录里多出来的文件。工程已锁定 `RuntimeIdentifier=win-x64`、`SelfContained=false`，因此只会拷贝本机需要的原生库，输出约 420MB（其余是 TorchSharp 的 `torch_cpu.dll`、OpenCvSharp、onnxruntime 等未被当前功能引用的包，可按需继续精简）。没装 SDK 时脚本会提示去 `https://dotnet.microsoft.com/download/dotnet/8.0` 安装。GGUF 模型不入库，见下一节由程序自动定位。
+知识文件统一放**仓库根目录**的 `资料\`（txt / md / csv / docx / doc / xlsx / xls / pdf），这是唯一需要维护的地方，`.gitignore` 只放行根目录这一个 `资料`；`bin` 下运行目录里的副本是构建时拷过去的，随 `bin` 一起被忽略，不入库。每次 `build.ps1` 会把根目录 `资料\` 里的文件（跳过占位的 `.gitkeep`）复制到 `WenQwen\bin\<配置>\net8.0-windows\资料\`，所以克隆仓库 → 构建 → 启动，知识库就自动就位；直接 `dotnet run` 时工作目录是仓库根，程序会直接读根目录的 `资料\`。复制是增量覆盖，不会删除运行目录里多出来的文件。
+
+仓库里的 `资料\使用说明.txt` 是一份默认内容（讲清支持格式与写作建议，本身也能被检索）。另外程序启动时也会自检：如果 `资料` 目录里一个可解析文件都没有，会自动写出这份 `使用说明.txt` 并提示，所以不会再出现“知识库总块数：0”的空目录；放入真实资料后这个文件可以随意删改。工程已锁定 `RuntimeIdentifier=win-x64`、`SelfContained=false`，因此只会拷贝本机需要的原生库，输出约 420MB（其余是 TorchSharp 的 `torch_cpu.dll`、OpenCvSharp、onnxruntime 等未被当前功能引用的包，可按需继续精简）。没装 SDK 时脚本会提示去 `https://dotnet.microsoft.com/download/dotnet/8.0` 安装。GGUF 模型不入库，见下一节由程序自动定位。
 
 **部署与使用**
 

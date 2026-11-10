@@ -61,6 +61,10 @@ namespace QwenConsole
 
         private static string _modelPath = "D:\\wqz\\models\\qwen2.5-vl-3b-instruct-q4_k_m.gguf";
         private static string _knowledgeFolder = "资料";
+        // 资料文件夹里一个资料都没有时，自动生成这份说明，避免“知识库 0 块”的空目录
+        private const string DefaultKnowledgeFileName = "使用说明.txt";
+        private static readonly string[] KnowledgeExtensions =
+            { "*.txt", "*.md", "*.csv", "*.docx", "*.doc", "*.xlsx", "*.xls", "*.pdf" };
         private const string ModelDownloadUrl = "https://modelscope.cn/models?name=Qwen2.5-VL-3B-Instruct-GGUF&page=1&tabKey=task";
         private static int _chunkSize = 800; // 知识库分块大小
 
@@ -200,11 +204,70 @@ namespace QwenConsole
                     : $"资料文件夹：{_knowledgeFolder}");
                 Console.ResetColor();
                 Console.WriteLine("   把 txt / md / docx / xlsx / pdf 资料放进该文件夹，重启软件后自动读取。");
+
+                // 一个资料都没有时自动落一份说明文件，目录不再空着
+                if (!HasAnyKnowledgeFile())
+                {
+                    string guide = Path.Combine(_knowledgeFolder, DefaultKnowledgeFileName);
+                    if (!File.Exists(guide))
+                    {
+                        File.WriteAllText(guide, BuildDefaultKnowledgeText(), new UTF8Encoding(false));
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"   资料文件夹里还没有资料，已自动生成 {DefaultKnowledgeFileName}（可直接编辑或另放文件）。");
+                        Console.ResetColor();
+                    }
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"资料文件夹创建失败：{ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 资料文件夹里是否存在至少一个可解析的资料文件。
+        /// </summary>
+        private static bool HasAnyKnowledgeFile()
+        {
+            try
+            {
+                foreach (string ext in KnowledgeExtensions)
+                {
+                    if (Directory.GetFiles(_knowledgeFolder, ext, SearchOption.AllDirectories).Length > 0)
+                        return true;
+                }
+                return false;
+            }
+            catch
+            {
+                // 目录读不了就当作“有资料”，不要凭猜测往里写文件
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 空资料文件夹的占位说明：讲清支持格式与写法建议，本身也是一段可检索的知识。
+        /// </summary>
+        private static string BuildDefaultKnowledgeText()
+        {
+            return string.Join(Environment.NewLine, new[]
+            {
+                "资料文件夹使用说明",
+                "================",
+                "",
+                "这里是本机的离线知识库。程序启动时自动读取本文件夹（含子文件夹）里的资料，抽取文字后分块，回答问题前先检索这里。",
+                "",
+                "支持的格式：txt、md、csv、docx、doc、xlsx、xls、pdf。",
+                "不支持的格式：扫描件 PDF（没有文字层）、chm、图片、网页文件。",
+                "",
+                "编写建议：",
+                "1. 一个主题一个文件，文件名直接写设备或主题名，例如“AL-51 报警处理.txt”，提问时更容易命中。",
+                "2. 表格转成文本时保留表头，每行写成“列名=值”，例如“报警代码=AL-51，可能原因=编码器通讯中断，处理=检查编码器通讯线”，否则容易看串列。",
+                "3. 处理步骤按顺序编号，一条一步，避免整段抄录。",
+                "4. 页眉页脚、目录页码可以留着，程序会尽量跳过重复内容和过短的碎片。",
+                "",
+                "本文件是资料为空时自动生成的占位说明。放入自己的资料后，本文件可以直接删除或改写。"
+            });
         }
 
         #region 模型可用性与提示
@@ -356,7 +419,7 @@ namespace QwenConsole
             _knowledgeChunks.Clear();
             if (!Directory.Exists(_knowledgeFolder)) return;
 
-            var exts = new[] { "*.txt", "*.md", "*.csv", "*.docx", "*.doc", "*.xlsx", "*.xls", "*.pdf" };
+            var exts = KnowledgeExtensions;
             var files = exts.SelectMany(ext => Directory.GetFiles(_knowledgeFolder, ext, SearchOption.AllDirectories)).ToList();
 
             var skipped = new List<string>();
