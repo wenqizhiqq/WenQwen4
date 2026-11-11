@@ -46,10 +46,11 @@ namespace QwenConsole
         {
             MaxTokens = MaxOutputTokens,
             AntiPrompts = new[] { "<|im_end|>", "User:", "用户:", "Assistant:", "助手:" },
-            // 3B 在低温度下会把同一段“现象/处理”反复刷屏，必须加重复惩罚压住
+            // 3B 在低温度下会把同一段“现象/处理”反复刷屏，必须加重复惩罚压住；
+            // 0.2 是为了压住自由发挥：RAG 场景要求照抄资料，温度高了会掺常识、改参数
             SamplingPipeline = new DefaultSamplingPipeline
             {
-                Temperature = 0.3f,
+                Temperature = 0.2f,
                 TopK = 40,
                 TopP = 0.9f,
                 RepeatPenalty = 1.18f,
@@ -1019,8 +1020,8 @@ namespace QwenConsole
             bool hasKnowledge = !string.IsNullOrWhiteSpace(knowledge);
 
             string systemPrompt = hasKnowledge
-                ? "你是工业设备技术支持工程师。只依据用户给出的【参考资料】回答，资料里没写的内容直接说“资料中没有提到”，不要编造。用简洁中文分条说明，关键结论后标注来源文件名。参考资料可能是表格或分条清单，先定位与问题对应的那一行再回答，不要混用其他条目。参数号、型号、数值必须原样照抄资料，不要改写、补全或推测。只回答与问题直接相关的内容，不要整段抄录资料。"
-                : "你是工业设备技术支持工程师。这次没有检索到资料，先用一句话说明“知识库中没有相关资料”，再给出通用常识建议。";
+                ? "你是工业设备资料查询工具，不是顾问。只能依据用户给出的【参考资料】作答，禁止使用参考资料以外的知识、经验、常识或推测。回答必须忠于原文：可以精简、归纳、分条，但参数号、型号、数值必须原样照抄，不得推导资料未写明的因果、步骤或操作建议。参考资料没写的，直接说“资料中没有提到”，不要补全。回答只包含资料里的内容，不要自己写来源标记，程序会统一附上。先定位与问题对应的那一行再回答，不要混用其他条目，也不要整段抄录。"
+                : "你是工业设备资料查询工具。这次没有检索到资料，只输出一句：知识库中没有相关资料。不要给建议，不要推测，不要补充任何常识内容。";
 
             string userPrompt = hasKnowledge
                 ? $"【参考资料】\n{knowledge}\n\n【问题】\n{question}"
@@ -1064,7 +1065,7 @@ namespace QwenConsole
 
             var (text, count, stopReason) = await GenerateAsync(_infParams);
 
-            // 3B 偶尔第一轮直接吐 EOS，空回答时换更高温度重试一次
+            // 3B 偶尔第一轮直接吐 EOS，空回答时略提高温度重试一次（不能太高，否则开始自由发挥）
             if (string.IsNullOrWhiteSpace(text))
             {
                 Console.Write("（重试）");
@@ -1074,7 +1075,7 @@ namespace QwenConsole
                     AntiPrompts = _infParams.AntiPrompts,
                     SamplingPipeline = new DefaultSamplingPipeline
                     {
-                        Temperature = 0.6f,
+                        Temperature = 0.35f,
                         TopK = 40,
                         TopP = 0.9f,
                         RepeatPenalty = 1.18f,
@@ -1092,7 +1093,49 @@ namespace QwenConsole
             if (string.IsNullOrWhiteSpace(text))
                 Console.WriteLine("（模型这次没有给出内容，请重试或换个问法）");
 
-            return text.Trim();
+            // 来源与参数号由程序核对，不依赖模型自觉：流式已经打印完正文，这里补一段核对结果
+            string footer = hasKnowledge ? BuildVerificationFooter(text, knowledge) : "";
+            if (footer.Length > 0) Console.WriteLine("\n" + footer);
+
+            return (text.Trim() + (footer.Length > 0 ? "\n\n" + footer : "")).Trim();
+        }
+
+        /// <summary>
+        /// 回答后核对：附上本次真实命中的文件名，并检查回答里的参数号是否真的出现在资料中。
+        /// 模型偶尔会把 Pr0.10 写成 Pr1.08，这种错必须按原文比对，不能靠它自己保证。
+        /// </summary>
+        static string BuildVerificationFooter(string answer, string knowledge)
+        {
+            var lines = new List<string>();
+
+            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match m in Regex.Matches(knowledge, @"[Pp][Rr]\s?\d{1,2}\.\d{1,2}"))
+                known.Add(NormalizeParam(m.Value));
+
+            var unknown = new List<string>();
+            foreach (Match m in Regex.Matches(answer, @"[Pp][Rr]\s?\d{1,2}\.\d{1,2}"))
+            {
+                string code = NormalizeParam(m.Value);
+                if (!known.Contains(code) && !unknown.Contains(code)) unknown.Add(code);
+            }
+            if (unknown.Count > 0)
+                lines.Add($"⚠ 核对：资料中没有 {string.Join("、", unknown)}，相关数值可能失真，请以原文为准。");
+
+            var files = new List<string>();
+            foreach (Match m in Regex.Matches(knowledge, @"【来自文件：(.+?)】"))
+            {
+                string name = m.Groups[1].Value.Trim();
+                if (name.Length > 0 && !files.Contains(name)) files.Add(name);
+            }
+            if (files.Count > 0) lines.Add("来源：" + string.Join("、", files));
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        /// <summary>参数号归一化：去掉空格、统一小写，便于和原文比对。</summary>
+        static string NormalizeParam(string raw)
+        {
+            return raw.Replace(" ", "").Replace("\u3000", "").ToLowerInvariant();
         }
         #endregion
     }
