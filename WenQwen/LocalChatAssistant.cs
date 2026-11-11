@@ -173,7 +173,9 @@ namespace QwenConsole
             while (true)
             {
                 Console.Write("你：");
-                string input = Console.ReadLine()?.Trim();
+                // 从 UTF-8 带 BOM 的文件/管道喂输入时，首行会带一个 U+FEFF，
+                // 不清理会显示成乱码点，也会混进检索分词
+                string input = Console.ReadLine()?.Replace("\uFEFF", "").Trim();
                 if (string.IsNullOrEmpty(input)) continue;
 
                 if (input.ToLower() == "exit") break;
