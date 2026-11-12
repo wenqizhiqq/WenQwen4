@@ -10,6 +10,12 @@ WenQwen 是一个完全离线的工业 AI 助手，目标是在不联网的工�
 
 默认模型是 `D:\wqz\models\qwen2.5-vl-3b-instruct-q4_k_m.gguf`。若默认路径不存在，ModelLocator 先在各盘浅层目录按同名文件广度搜索，深度 3，跳过 Windows、Program Files、AppData、node_modules 等目录，单盘限 4 秒、总计 10 秒，非系统盘优先；仍找不到则退化为查找文件名含 qwen 的最大 `.gguf`；再失败才弹窗并允许手工输入路径，最终仍不存在则退出。定位到文件后还有一道体检：先打印路径和体积，再读前 4 字节确认文件头是 `GGUF`；小于 64MB 或文件头不对会直接给出“文件不完整 / 格式不对”的提示并退出，避免 llama.cpp 统一抛出的 `Failed to load model` 掩盖真实原因（网盘边下边读、下载中断、占位文件都会走到这一步）。加载参数为上下文 8192、线程数等于 CPU 核数、GpuLayerCount 为 99，但实际引用的是 LLamaSharp 的 CPU 后端，因此只能 CPU 推理。3B Q4_K_M 模型约 1.8GB，运行时内存约 2 到 3GB，加载和生成速度明显快于 7B。当前只用其文本能力，视觉投影文件 `mmproj-qwen2.5-vl-3b-instruct-q8_0.gguf` 未加载，图片输入不生效。
 
+**模型路径必须能被 llama.cpp 打开（中文路径会失败）**
+
+llama.cpp 的 `gguf_init_from_file` 用窄字符 `fopen` 打开模型，**路径里只要含中文或全角字符就打不开**，日志是 `failed to open GGUF file`，外层只抛出笼统的 `Failed to load model`（文件大小、GGUF 魔数都正常，很容易误判成文件损坏）。程序检测到非 ASCII 路径时会自动把模型复制到 `%LOCALAPPDATA%\WenQwen\models\` 再从那里加载，只复制一次（约 1.9GB，带百分比进度），之后命中缓存秒开；也可以在启动时用 `WenQwen.exe --model "D:\models\xxx.gguf"` 直接指定一个纯英文路径。加载失败时程序会自动回放 llama.cpp 最近 40 行日志（内存不足、CPU 指令集不支持、模型架构不支持都会在这里写明），需要完整日志时设 `WENQWEN_DEBUG_LLAMA=1` 重跑。
+
+体检也加了两项：解析 GGUF 头部（版本、张量数、元数据项数）判断结构是否合理；抽样文件末尾 4KB —— 断点续传没续完的文件体积够、魔数也对，但尾部全是空白，会在加载前就被拦住，而不是等 llama.cpp 报一句 `Failed to load model`。
+
 **知识库（RAG）**
 
 程序从当前目录的“资料”文件夹递归读取 txt、md、csv、docx、doc、xlsx、xls、pdf 文件，按格式抽取纯文本后再分块：docx 用 OpenXml 按段落顺序取正文与表格文字，xlsx 走 OpenXml 并还原共享字符串，每一行都拼成“表头=值”的自描述文本（否则小模型会看串列，把加减速时间当成速度答出来），空单元格按列号对齐不会让整行错位；pdf 用 iTextSharp 逐页取字，旧版 doc 按 UTF-16 解码后只保留可读片段，txt/md/csv 直接按 UTF-8 读。抽取时会丢掉目录域代码（PAGEREF）、纯页码、连续重复的页眉页脚，短于 40 字的碎片不建块，正文按段落累积到 800 字一块。单个文件解析失败会被跳过，启动时打印跳过清单，PDF 扫描件因无文字层也会进入跳过清单，chm 不在支持范围。

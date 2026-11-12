@@ -29,6 +29,9 @@ namespace QwenConsole
         // RAG 知识库：分块存储
         private static List<KnowledgeChunk> _knowledgeChunks = new();
 
+        // llama.cpp 原生日志的滚动缓冲：平时不刷屏，加载失败时回放最后几十行
+        private static readonly Queue<string> _llamaLogTail = new();
+
         // 内部记忆
         private static List<ChatHistoryItem> _chatHistory = new();
         private static int _historyId = 1;
@@ -94,6 +97,10 @@ namespace QwenConsole
             // 管道/文件重定向输入时按 UTF-8 解码，避免中文被按本地代码页解析成乱码
             if (Console.IsInputRedirected) Console.InputEncoding = Encoding.UTF8;
 
+            // 手动指定模型：WenQwen.exe --model "D:\models\xxx.gguf"
+            int modelIndex = Array.FindIndex(args, a => string.Equals(a, "--model", StringComparison.OrdinalIgnoreCase));
+            if (modelIndex >= 0 && modelIndex + 1 < args.Length) _modelPath = args[modelIndex + 1];
+
             // 维护入口：只重建示例资料，不加载模型
             if (args.Any(a => string.Equals(a, "--seed-knowledge", StringComparison.OrdinalIgnoreCase)))
             {
@@ -134,6 +141,7 @@ namespace QwenConsole
             Console.WriteLine("正在加载模型...");
             EnsureModelAvailable();
             VerifyModelFile();
+            EnsureLoadableModelPath();
 
             try
             {
@@ -154,6 +162,7 @@ namespace QwenConsole
             }
             catch (Exception ex)
             {
+                DumpLlamaLogTail();
                 PromptError($"模型加载失败：{ex.Message}",
                     "请确认模型文件完整、未被其他程序占用，且本机支持该模型格式（GGUF）。");
                 return;
@@ -217,14 +226,46 @@ namespace QwenConsole
 
         /// <summary>
         /// llama.cpp 默认把 KV cache、计算图、缓冲区分配等内部细节逐行打到控制台，
-        /// 对使用者没有意义。默认全部静默，排查加载问题时可设 WENQWEN_DEBUG_LLAMA=1 打开。
+        /// 对使用者没有意义。默认只留最近 40 行在内存里，加载失败时打出来定位；
+        /// 排查加载问题时可设 WENQWEN_DEBUG_LLAMA=1 直接看全量日志。
         /// </summary>
         static void SilenceLlamaLog()
         {
             if (Environment.GetEnvironmentVariable("WENQWEN_DEBUG_LLAMA") == "1")
+            {
                 LLama.Native.NativeLogConfig.llama_log_set((level, message) => Console.Error.WriteLine(message));
-            else
-                LLama.Native.NativeLogConfig.llama_log_set((level, message) => { });
+                return;
+            }
+
+            LLama.Native.NativeLogConfig.llama_log_set((level, message) =>
+            {
+                string line = (message ?? "").Trim();
+                if (line.Length == 0) return;
+                if (line.Length > 300) line = line.Substring(0, 300) + "…";
+                lock (_llamaLogTail)
+                {
+                    _llamaLogTail.Enqueue(line);
+                    while (_llamaLogTail.Count > 40) _llamaLogTail.Dequeue();
+                }
+            });
+        }
+
+        /// <summary>
+        /// 加载失败时回放 llama.cpp 最近的日志：模型架构不支持、内存不足、CPU 指令集缺失
+        /// 都只在这里说得清楚，控制台原来的提示只有一句 Failed to load model。
+        /// </summary>
+        static void DumpLlamaLogTail()
+        {
+            lock (_llamaLogTail)
+            {
+                if (_llamaLogTail.Count == 0) return;
+                Console.ForegroundColor = ConsoleColor.DarkYellow;
+                Console.WriteLine("   —— llama.cpp 最近日志 ——");
+                foreach (string line in _llamaLogTail) Console.WriteLine("   " + line);
+                Console.WriteLine("   —— 日志结束（完整日志可用 WENQWEN_DEBUG_LLAMA=1 重跑）——");
+                Console.ResetColor();
+                _llamaLogTail.Clear();
+            }
         }
 
         /// <summary>
@@ -357,8 +398,8 @@ namespace QwenConsole
         }
 
         /// <summary>
-        /// 加载前体检：文件头必须是 "GGUF" 且体积合理。
-        /// 网盘边下边读、下载中断、占位文件都会在这里被挡住，
+        /// 加载前体检：文件头必须是 "GGUF"、体积合理、头部结构可解析、末尾不是空白数据。
+        /// 网盘边下边读、断点续传没续完、占位文件都会在这里被挡住，
         /// 比 llama.cpp 统一抛的 "Failed to load model" 更容易定位。
         /// </summary>
         private static void VerifyModelFile()
@@ -378,16 +419,30 @@ namespace QwenConsole
                 Environment.Exit(0);
             }
 
+            // 含中文/全角字符的路径在个别环境下会打不开，先提示，真失败时用户就知道先改路径
+            if (_modelPath.Any(c => c > 127))
+                Console.WriteLine("   提示：路径含中文或全角字符，若下面加载失败，先把模型移到纯英文路径（如 D:\\models\\）再试。");
+
+            long availBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+            if (availBytes > 0)
+            {
+                Console.WriteLine($"   可用内存：{availBytes / 1024.0 / 1024 / 1024:F1} GB（3B Q4 至少需要 3GB 空闲）");
+                if (availBytes < 3L * 1024 * 1024 * 1024)
+                    Console.WriteLine("   警告：内存偏小，模型可能加载到一半就失败，请关掉浏览器/VS 等占内存的程序。");
+            }
+
             string magic;
             try
             {
-                byte[] head = new byte[4];
+                byte[] head = new byte[24];
+                int n;
                 using (var fs = File.OpenRead(_modelPath))
-                {
-                    int n = fs.Read(head, 0, head.Length);
-                    if (n < head.Length) throw new IOException("文件头不足 4 字节");
-                }
-                magic = Encoding.ASCII.GetString(head);
+                    n = fs.Read(head, 0, head.Length);
+                if (n < 4) throw new IOException("文件头不足 4 字节");
+
+                magic = Encoding.ASCII.GetString(head, 0, 4);
+                if (n >= 24)
+                    PrintGgufHeader(head);
             }
             catch (Exception ex)
             {
@@ -400,6 +455,131 @@ namespace QwenConsole
             {
                 PromptError($"模型文件格式不对：{_modelPath}（文件头为 \"{magic}\"，应为 \"GGUF\"）",
                     "常见原因：下载未完成、下到的是网页或种子、网盘占位文件还没落地到本地。请核对文件大小后重新下载。");
+                Environment.Exit(0);
+            }
+
+            // 末尾抽样：断点续传/网盘同步没完成时，文件体积够但尾部是空白数据，
+            // 这种文件魔数正常、llama.cpp 却在读张量时才崩，报的正是 "Failed to load model"
+            try
+            {
+                using var fs = File.OpenRead(_modelPath);
+                fs.Seek(-4096, SeekOrigin.End);
+                var tail = new byte[4096];
+                int tn = fs.Read(tail, 0, tail.Length);
+                bool allZero = tn > 0 && tail.Take(tn).All(b => b == 0);
+                if (allZero)
+                {
+                    PromptError($"模型文件尾部是空白数据：{_modelPath}",
+                        "体积够但内容没下全（网盘断点续传/同步未完成）。请重新下载，或换一个下载方式后再试。");
+                    Environment.Exit(0);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   尾部抽样跳过：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 解析 GGUF 头部：magic(4) + 版本(4) + 张量数(8) + 元数据项数(8)。
+        /// 结构明显不合理说明文件损坏，提前拦住，不用等 llama.cpp 报笼统错误。
+        /// </summary>
+        private static void PrintGgufHeader(byte[] head)
+        {
+            try
+            {
+                uint version = BitConverter.ToUInt32(head, 4);
+                ulong tensorCount = BitConverter.ToUInt64(head, 8);
+                ulong kvCount = BitConverter.ToUInt64(head, 16);
+                Console.WriteLine($"   结构：GGUF v{version} | 张量 {tensorCount} 个 | 元数据 {kvCount} 项");
+
+                if (version < 1 || version > 3 || tensorCount == 0 || tensorCount > 200000 || kvCount > 100000)
+                {
+                    PromptError($"模型文件结构异常：GGUF v{version}，张量 {tensorCount}，元数据 {kvCount}",
+                        "头部数据不合理，通常是下载损坏或被其他工具改写。请重新下载模型。");
+                    Environment.Exit(0);
+                }
+            }
+            catch
+            {
+                // 头部解析失败不阻断，交给后面的魔数与加载流程判断
+            }
+        }
+
+        /// <summary>
+        /// llama.cpp 的 gguf_init_from_file 用窄字符 fopen 打开文件，中文/全角路径在本地代码页下
+        /// 必然失败（实测报 "failed to open GGUF file"，外层只看到笼统的 Failed to load model）。
+        /// 这里把模型复制到纯英文的本地缓存目录再加载，只做一次，之后直接命中缓存。
+        /// </summary>
+        private static void EnsureLoadableModelPath()
+        {
+            if (!_modelPath.Any(c => c > 127)) return;
+
+            string fileName = Path.GetFileName(_modelPath);
+            string cacheDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WenQwen", "models");
+            string target = Path.Combine(cacheDir, fileName);
+
+            long size = new FileInfo(_modelPath).Length;
+            if (File.Exists(target) && new FileInfo(target).Length == size)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"   已使用英文路径缓存：{target}");
+                Console.ResetColor();
+                _modelPath = target;
+                return;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(cacheDir);
+                string root = Path.GetPathRoot(cacheDir) ?? "C:\\";
+                long free = new DriveInfo(root).AvailableFreeSpace;
+                if (free < size + 200L * 1024 * 1024)
+                {
+                    PromptError("模型路径含中文，需要复制到英文路径，但磁盘空间不足",
+                        $"{cacheDir} 需要 {size / 1024.0 / 1024 / 1024:F1} GB，当前可用 {free / 1024.0 / 1024 / 1024:F1} GB。" +
+                        "请手动把模型移到纯英文路径，再用 --model \"路径\" 指定。");
+                    Environment.Exit(0);
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("   模型路径含中文，llama.cpp 打不开这类路径，正在复制到英文缓存（只做一次）：");
+                Console.WriteLine($"   目标：{target}");
+                Console.ResetColor();
+
+                string temp = target + ".copying";
+                using (var src = File.OpenRead(_modelPath))
+                using (var dst = File.Create(temp))
+                {
+                    var buffer = new byte[8 * 1024 * 1024];
+                    long copied = 0;
+                    int lastPct = -1, n;
+                    while ((n = src.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        dst.Write(buffer, 0, n);
+                        copied += n;
+                        int pct = (int)(copied * 100 / Math.Max(1, size));
+                        if (pct >= lastPct + 10)
+                        {
+                            Console.Write($"\r   复制中 {pct}%");
+                            lastPct = pct;
+                        }
+                    }
+                }
+                Console.WriteLine("\r   复制完成，已改用英文路径。      ");
+
+                if (File.Exists(target)) File.Delete(target);
+                File.Move(temp, target);
+                _modelPath = target;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine();
+                PromptError($"模型复制失败：{ex.Message}",
+                    "请手动把模型移到纯英文路径（如 D:\\models\\qwen.gguf），再用 --model \"路径\" 指定。");
                 Environment.Exit(0);
             }
         }
