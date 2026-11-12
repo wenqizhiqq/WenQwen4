@@ -14,6 +14,8 @@ WenQwen 是一个完全离线的工业 AI 助手，目标是在不联网的工�
 
 llama.cpp 的 `gguf_init_from_file` 用窄字符 `fopen` 打开模型，**路径里只要含中文或全角字符就打不开**，日志是 `failed to open GGUF file`，外层只抛出笼统的 `Failed to load model`（文件大小、GGUF 魔数都正常，很容易误判成文件损坏）。程序检测到非 ASCII 路径时会自动把模型复制到 `%LOCALAPPDATA%\WenQwen\models\` 再从那里加载，只复制一次（约 1.9GB，带百分比进度），之后命中缓存秒开；也可以在启动时用 `WenQwen.exe --model "D:\models\xxx.gguf"` 直接指定一个纯英文路径。加载失败时程序会自动回放 llama.cpp 最近 40 行日志（内存不足、CPU 指令集不支持、模型架构不支持都会在这里写明），需要完整日志时设 `WENQWEN_DEBUG_LLAMA=1` 重跑。
 
+加载失败弹窗不再只写一句“请确认模型文件完整”，而是按病因分开说：路径含中文 → 直接点明并给出纯英文目录示例和可直接粘贴的 `--model` 命令；llama 日志里是 `failed to open` → 提示权限/杀毒隔离/网盘虚拟目录；已经复制到缓存却仍失败 → 说明路径已不是问题，按“文件没下完 / 缓存被杀毒隔离”排查。启动时还会打印**当前运行的 exe 完整路径和构建时间**，便于确认是不是打开了 `bin\Debug\net8.0-windows-1` 这类旧副本——旧版本没有自动复制逻辑，一定会报那句笼统的 `Failed to load model`。
+
 体检也加了两项：解析 GGUF 头部（版本、张量数、元数据项数）判断结构是否合理；抽样文件末尾 4KB —— 断点续传没续完的文件体积够、魔数也对，但尾部全是空白，会在加载前就被拦住，而不是等 llama.cpp 报一句 `Failed to load model`。
 
 **知识库（RAG）**

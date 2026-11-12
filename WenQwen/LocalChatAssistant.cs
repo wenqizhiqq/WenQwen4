@@ -64,6 +64,9 @@ namespace QwenConsole
         };
 
         private static string _modelPath = "D:\\wqz\\models\\qwen2.5-vl-3b-instruct-q4_k_m.gguf";
+        // 用户最初给的路径（可能含中文）；自动复制到英文缓存后 _modelPath 会变成缓存路径，
+        // 报错时要能同时说清“原路径是什么、后来换成了什么”。
+        private static string _sourceModelPath;
         private static string _knowledgeFolder = "资料";
         private static readonly string[] KnowledgeExtensions =
             { "*.txt", "*.md", "*.csv", "*.docx", "*.doc", "*.xlsx", "*.xls", "*.pdf" };
@@ -100,6 +103,7 @@ namespace QwenConsole
             // 手动指定模型：WenQwen.exe --model "D:\models\xxx.gguf"
             int modelIndex = Array.FindIndex(args, a => string.Equals(a, "--model", StringComparison.OrdinalIgnoreCase));
             if (modelIndex >= 0 && modelIndex + 1 < args.Length) _modelPath = args[modelIndex + 1];
+            _sourceModelPath = _modelPath;
 
             // 维护入口：只重建示例资料，不加载模型
             if (args.Any(a => string.Equals(a, "--seed-knowledge", StringComparison.OrdinalIgnoreCase)))
@@ -139,6 +143,7 @@ namespace QwenConsole
             SilenceLlamaLog();
             EnsureKnowledgeFolder();
             Console.WriteLine("正在加载模型...");
+            Console.WriteLine($"   程序：{RunningExePath()}（构建于 {BuildTimeText()}）");
             EnsureModelAvailable();
             VerifyModelFile();
             EnsureLoadableModelPath();
@@ -162,9 +167,10 @@ namespace QwenConsole
             }
             catch (Exception ex)
             {
+                bool openFailed = LlamaLogSaysOpenFailed();
                 DumpLlamaLogTail();
-                PromptError($"模型加载失败：{ex.Message}",
-                    "请确认模型文件完整、未被其他程序占用，且本机支持该模型格式（GGUF）。");
+                PromptError($"模型加载失败：{ex.Message}{Environment.NewLine}运行的程序：{RunningExePath()}",
+                    BuildLoadFailureHint(openFailed));
                 return;
             }
 
@@ -266,6 +272,95 @@ namespace QwenConsole
                 Console.ResetColor();
                 _llamaLogTail.Clear();
             }
+        }
+
+        /// <summary>
+        /// 路径里含非 ASCII 字符（中文、全角括号、日文等）。
+        /// llama.cpp 的 gguf_init_from_file 用窄字符 fopen 打开文件，这类路径在本地代码页下打不开，
+        /// 外层只会看到一句 Failed to load model，很容易被误判成模型文件损坏。
+        /// </summary>
+        private static bool HasNonAsciiPath(string path) =>
+            !string.IsNullOrEmpty(path) && path.Any(c => c > 127);
+
+        /// <summary>llama.cpp 最近日志里是否出现了“打不开文件”。</summary>
+        private static bool LlamaLogSaysOpenFailed()
+        {
+            lock (_llamaLogTail)
+                return _llamaLogTail.Any(l => l.IndexOf("failed to open", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        /// <summary>当前真正在运行的可执行文件（用来发现“打开的是旧版本”）。</summary>
+        private static string RunningExePath()
+        {
+            try { return Environment.ProcessPath ?? "未知"; } catch { return "未知"; }
+        }
+
+        /// <summary>可执行文件的生成时间，用来看清是不是旧构建。</summary>
+        private static string BuildTimeText()
+        {
+            try
+            {
+                string exe = RunningExePath();
+                return File.Exists(exe) ? File.GetLastWriteTime(exe).ToString("yyyy-MM-dd HH:mm") : "未知";
+            }
+            catch { return "未知"; }
+        }
+
+        /// <summary>英文缓存的完整目标路径。</summary>
+        private static string ModelCacheTargetPath() => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WenQwen", "models", Path.GetFileName(_modelPath));
+
+        /// <summary>
+        /// 把“加载失败”翻译成能直接照做的提示：中文路径、文件打不开、其他原因分开说，
+        /// 不要再用一句“请确认模型文件完整”把真正的病因盖住。
+        /// </summary>
+        private static string BuildLoadFailureHint(bool openFailed)
+        {
+            string exeName = Path.GetFileName(RunningExePath());
+            if (HasNonAsciiPath(_modelPath))
+            {
+                return string.Join(Environment.NewLine, new[]
+                {
+                    "原因：模型路径里有中文或全角字符，llama.cpp 打不开这类路径，与模型文件本身无关。",
+                    "",
+                    "办法一（推荐）：把模型移到纯英文目录，再指定路径启动，例如：",
+                    "    目录：D:\\models\\",
+                    $"    命令：{exeName} --model \"D:\\models\\{Path.GetFileName(_modelPath)}\"",
+                    "",
+                    "办法二：把模型放到下面这个英文缓存目录，程序启动时会直接用它：",
+                    $"    {ModelCacheTargetPath()}",
+                    "",
+                    "提示：最新构建的程序会自动把含中文路径的模型复制到英文缓存，"
+                        + "如果这里仍然报错，说明运行的是旧版可执行文件，请换成刚构建出来的那一个。",
+                });
+            }
+
+            if (openFailed)
+            {
+                return string.Join(Environment.NewLine, new[]
+                {
+                    "原因：llama.cpp 打不开这个文件（路径或权限问题），不是模型格式问题。",
+                    "请检查：文件是否被杀毒软件隔离、路径是否过长、是否还在网盘/压缩包虚拟目录里没有真正落地。",
+                });
+            }
+
+            // 原路径含中文、已自动复制到英文缓存，却仍然加载失败 → 不再是路径问题
+            if (HasNonAsciiPath(_sourceModelPath) &&
+                !string.Equals(_modelPath, _sourceModelPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Join(Environment.NewLine, new[]
+                {
+                    $"原路径含中文：{_sourceModelPath}",
+                    $"已自动复制到英文缓存：{_modelPath}",
+                    "路径已经不是问题，按下面两条排查：",
+                    "1. 原文件可能没下载完整（网盘显示“已完成”也不一定），重新下载后覆盖；",
+                    "2. 缓存副本被杀毒软件隔离或占用，删掉缓存目录里的 gguf 文件，重启程序会自动重拷。",
+                });
+            }
+
+            return "请确认模型文件完整、未被其他程序占用，且本机支持该模型格式（GGUF）。" +
+                   $"{Environment.NewLine}可用 WENQWEN_DEBUG_LLAMA=1 重跑，查看完整 llama.cpp 日志。";
         }
 
         /// <summary>
@@ -515,11 +610,8 @@ namespace QwenConsole
         {
             if (!_modelPath.Any(c => c > 127)) return;
 
-            string fileName = Path.GetFileName(_modelPath);
-            string cacheDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WenQwen", "models");
-            string target = Path.Combine(cacheDir, fileName);
+            string cacheDir = Path.GetDirectoryName(ModelCacheTargetPath());
+            string target = ModelCacheTargetPath();
 
             long size = new FileInfo(_modelPath).Length;
             if (File.Exists(target) && new FileInfo(target).Length == size)
